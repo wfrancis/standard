@@ -206,7 +206,7 @@ export default function ProjectDetailClient({
                   : "bg-yellow-100 text-yellow-800 border-yellow-200"
               }`}
             >
-              {bidSummary.recommendation.replace("_", " ")}
+              {bidSummary.recommendation.replaceAll("_", " ")}
             </span>
           )}
         </div>
@@ -760,7 +760,7 @@ export default function ProjectDetailClient({
           <div className="text-sm text-gray-600 mt-1">
             {project.gcName && <span>GC: {project.gcName} | </span>}
             {project.bidDate && <span>Bid: {project.bidDate}</span>}
-            {bidSummary && <span> | {bidSummary.recommendation.replace("_", " ")}</span>}
+            {bidSummary && <span> | {bidSummary.recommendation.replaceAll("_", " ")}</span>}
           </div>
           <hr className="mt-3" />
         </div>

@@ -21,7 +21,7 @@ export function formatBidSummaryText(bid: BidSummary): string {
   if (bid.prevailingWage !== null && bid.prevailingWage !== undefined) {
     lines.push(`Prevailing Wage: ${bid.prevailingWage ? "Yes" : "No"}`);
   }
-  lines.push(`Recommendation: ${bid.recommendation.replace("_", " ")}`);
+  lines.push(`Recommendation: ${bid.recommendation.replaceAll("_", " ")}`);
   lines.push("");
 
   if (bid.scope.length > 0) {

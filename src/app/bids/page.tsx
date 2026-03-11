@@ -145,7 +145,7 @@ export default function BidIntakePage() {
                 recommendationColors[result.recommendation]
               }`}
             >
-              {result.recommendation.replace("_", " ")}
+              {result.recommendation.replaceAll("_", " ")}
             </span>
           </div>
 
