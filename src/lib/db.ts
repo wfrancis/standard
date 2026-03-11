@@ -1,0 +1,63 @@
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
+
+let _db: Database.Database | null = null;
+
+function getDb(): Database.Database {
+  if (_db) return _db;
+
+  const DB_PATH = process.env.NODE_ENV === 'production'
+    ? '/data/standard-interiors.db'
+    : path.join(process.cwd(), 'data', 'standard-interiors.db');
+
+  const dir = path.dirname(DB_PATH);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  _db = new Database(DB_PATH);
+  _db.pragma('journal_mode = WAL');
+
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      gc_name TEXT,
+      gc_estimator TEXT,
+      gc_email TEXT,
+      bid_date TEXT,
+      bid_time TEXT,
+      status TEXT DEFAULT 'active',
+      bid_summary_json TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS drawings (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id),
+      page_number INTEGER,
+      sheet_id TEXT,
+      sheet_title TEXT,
+      discipline TEXT,
+      relevance TEXT,
+      flooring_notes TEXT,
+      detail_types TEXT,
+      phase TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS specs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id),
+      extraction_json TEXT,
+      source_pages TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
+  return _db;
+}
+
+export default getDb;
