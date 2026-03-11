@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import ConfidenceBadge from "@/components/ConfidenceBadge";
 import FileUpload from "@/components/FileUpload";
 import type { BidSummary } from "@/lib/schemas/bid";
 import type { SpecExtraction } from "@/lib/schemas/spec";
 import type { DrawingClassification } from "@/lib/schemas/drawing";
-import { crossReferenceScope, type ScopeMatch } from "@/lib/scope-matcher";
+import { crossReferenceScope, buildSFReconciliation, type SFReconciliationItem, type CrossReferenceResult } from "@/lib/scope-matcher";
 import { formatBidSummaryText } from "@/lib/format-bid-summary";
 
 interface ProjectInfo {
@@ -42,9 +42,103 @@ const relevanceColors: Record<string, string> = {
 const tabs = ["Summary", "Drawings", "Specs", "Export"] as const;
 type Tab = (typeof tabs)[number];
 
+function daysUntilBid(bidDate: string | null): string | null {
+  if (!bidDate) return null;
+  const now = new Date();
+  const due = new Date(bidDate);
+  const diffMs = due.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return "Past due";
+  if (diffDays === 0) return "Due today";
+  if (diffDays === 1) return "Due tomorrow";
+  return `${diffDays} days`;
+}
+
+function formatRecommendation(rec: string): string {
+  return rec.replace(/_/g, " ");
+}
+
+// Inline editable text field
+function EditableField({
+  value,
+  onSave,
+  label,
+  multiline = false,
+}: {
+  value: string;
+  onSave: (val: string) => void;
+  label?: string;
+  multiline?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2">
+        {multiline ? (
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            className="border border-blue-300 rounded px-2 py-1 text-sm flex-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            rows={2}
+            autoFocus
+          />
+        ) : (
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            className="border border-blue-300 rounded px-2 py-1 text-sm flex-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                onSave(draft);
+                setEditing(false);
+              }
+              if (e.key === "Escape") {
+                setDraft(value);
+                setEditing(false);
+              }
+            }}
+          />
+        )}
+        <button
+          onClick={() => {
+            onSave(draft);
+            setEditing(false);
+          }}
+          className="text-xs text-blue-600 hover:text-blue-800"
+        >
+          Save
+        </button>
+        <button
+          onClick={() => {
+            setDraft(value);
+            setEditing(false);
+          }}
+          className="text-xs text-gray-500 hover:text-gray-700"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <span
+      className="group cursor-pointer hover:bg-blue-50 rounded px-1 -mx-1 transition-colors"
+      onClick={() => setEditing(true)}
+      title={label ? `Click to edit ${label}` : "Click to edit"}
+    >
+      {value}
+      <span className="invisible group-hover:visible text-blue-400 ml-1 text-xs">✎</span>
+    </span>
+  );
+}
+
 export default function ProjectDetailClient({
   project,
-  bidSummary,
+  bidSummary: initialBidSummary,
   drawings: initialDrawings,
   specExtractions: initialSpecs,
 }: {
@@ -54,6 +148,7 @@ export default function ProjectDetailClient({
   specExtractions: SpecExtraction[];
 }) {
   const [activeTab, setActiveTab] = useState<Tab>("Summary");
+  const [bidSummary, setBidSummary] = useState<BidSummary | null>(initialBidSummary);
   const [drawings, setDrawings] = useState<DrawingItem[]>(initialDrawings);
   const [specExtractions, setSpecExtractions] = useState<SpecExtraction[]>(initialSpecs);
   const [drawingFilter, setDrawingFilter] = useState<"all" | "relevant">("relevant");
@@ -63,6 +158,7 @@ export default function ProjectDetailClient({
   const [specText, setSpecText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [addendaStatus, setAddendaStatus] = useState<Record<number, "reviewed" | "pending">>({});
 
   // Drawing stats
   const relevantCount = drawings.filter(
@@ -77,10 +173,55 @@ export default function ProjectDetailClient({
         );
 
   // Scope cross-reference
-  const scopeMatches = useMemo<ScopeMatch[]>(() => {
-    if (!bidSummary || specExtractions.length === 0) return [];
+  const { scopeMatches, specGaps } = useMemo<CrossReferenceResult>(() => {
+    if (!bidSummary || specExtractions.length === 0) return { scopeMatches: [], specGaps: [] };
     return crossReferenceScope(bidSummary, specExtractions);
   }, [bidSummary, specExtractions]);
+
+  // SF Reconciliation
+  const sfReconciliation = useMemo<SFReconciliationItem[]>(() => {
+    if (!bidSummary || bidSummary.scope.length === 0 || drawings.length === 0) return [];
+    return buildSFReconciliation(bidSummary, drawings);
+  }, [bidSummary, drawings]);
+
+  // Missing addendum warnings
+  const missingAddenda = useMemo(() => {
+    if (!bidSummary) return [];
+    const allText = [...bidSummary.keyNotes, ...bidSummary.risks].join(" ");
+    const refs = allText.match(/addend(?:um|a)\s*#?(\d+)/gi) || [];
+    const referenced = refs.map((r) => {
+      const m = r.match(/(\d+)/);
+      return m ? m[1] : null;
+    }).filter(Boolean) as string[];
+    const listed = (bidSummary.addenda || []).join(" ");
+    return Array.from(new Set(referenced)).filter((num) => !listed.includes(num));
+  }, [bidSummary]);
+
+  // Debounced persist for bid summary edits
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistBidSummary = useCallback(
+    (updated: BidSummary) => {
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      persistTimer.current = setTimeout(() => {
+        fetch(`/api/projects/${project.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bid_summary_json: updated }),
+        }).catch(() => {
+          /* silently fail — edits are still in local state */
+        });
+      }, 500);
+    },
+    [project.id]
+  );
+
+  // Inline edit helper for bid summary fields
+  function updateBidField<K extends keyof BidSummary>(key: K, value: BidSummary[K]) {
+    if (!bidSummary) return;
+    const updated = { ...bidSummary, [key]: value };
+    setBidSummary(updated);
+    persistBidSummary(updated);
+  }
 
   // Upload drawings
   async function handleDrawingUpload(file: File) {
@@ -190,25 +331,45 @@ export default function ProjectDetailClient({
     { label: "Specs", done: specExtractions.length > 0 },
   ];
 
+  const bidDaysLabel = daysUntilBid(project.bidDate);
+
   return (
     <div className="p-8 max-w-6xl">
+      {/* Breadcrumb */}
+      <nav className="text-sm text-gray-500 mb-4 no-print">
+        <a href="/" className="hover:text-blue-600 transition-colors">Dashboard</a>
+        <span className="mx-2">/</span>
+        <span className="text-gray-900">{project.name}</span>
+      </nav>
+
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">{project.name}</h1>
-          {bidSummary && (
-            <span
-              className={`px-3 py-1 rounded-full text-sm font-bold border ${
-                bidSummary.recommendation === "BID"
-                  ? "bg-green-100 text-green-800 border-green-200"
-                  : bidSummary.recommendation === "PASS"
-                  ? "bg-red-100 text-red-800 border-red-200"
-                  : "bg-yellow-100 text-yellow-800 border-yellow-200"
-              }`}
-            >
-              {bidSummary.recommendation.replaceAll("_", " ")}
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {bidDaysLabel && (
+              <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                bidDaysLabel === "Past due" ? "bg-gray-200 text-gray-600" :
+                bidDaysLabel === "Due today" || bidDaysLabel === "Due tomorrow" ? "bg-red-100 text-red-700" :
+                "bg-blue-100 text-blue-700"
+              }`}>
+                {bidDaysLabel}
+              </span>
+            )}
+            {bidSummary && (
+              <span
+                className={`px-3 py-1 rounded-full text-sm font-bold border ${
+                  bidSummary.recommendation === "BID"
+                    ? "bg-green-100 text-green-800 border-green-200"
+                    : bidSummary.recommendation === "PASS"
+                    ? "bg-red-100 text-red-800 border-red-200"
+                    : "bg-yellow-100 text-yellow-800 border-yellow-200"
+                }`}
+              >
+                {formatRecommendation(bidSummary.recommendation)}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
           {project.gcName && <span>GC: {project.gcName}</span>}
@@ -217,6 +378,9 @@ export default function ProjectDetailClient({
               Bid: {project.bidDate}
               {project.bidTime ? ` at ${project.bidTime}` : ""}
             </span>
+          )}
+          {bidSummary?.projectLocation && (
+            <span>📍 {bidSummary.projectLocation}</span>
           )}
         </div>
         {/* Pipeline stages */}
@@ -301,29 +465,74 @@ export default function ProjectDetailClient({
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   {bidSummary.projectLocation && (
                     <div>
-                      <span className="text-gray-500">Location:</span> {bidSummary.projectLocation}
+                      <span className="text-gray-500">Location:</span>{" "}
+                      <EditableField
+                        value={bidSummary.projectLocation}
+                        onSave={(v) => updateBidField("projectLocation", v)}
+                        label="location"
+                      />
+                    </div>
+                  )}
+                  {!bidSummary.projectLocation && (
+                    <div>
+                      <span className="text-gray-500">Location:</span>{" "}
+                      <button
+                        onClick={() => updateBidField("projectLocation", "Enter location")}
+                        className="text-xs text-blue-500 hover:text-blue-700"
+                      >
+                        + Add location
+                      </button>
                     </div>
                   )}
                   {bidSummary.owner && (
                     <div>
-                      <span className="text-gray-500">Owner:</span> {bidSummary.owner}
+                      <span className="text-gray-500">Owner:</span>{" "}
+                      <EditableField
+                        value={bidSummary.owner}
+                        onSave={(v) => updateBidField("owner", v)}
+                        label="owner"
+                      />
                     </div>
                   )}
                   <div>
-                    <span className="text-gray-500">GC:</span> {bidSummary.gcName}
+                    <span className="text-gray-500">GC:</span>{" "}
+                    <EditableField
+                      value={bidSummary.gcName}
+                      onSave={(v) => updateBidField("gcName", v)}
+                      label="GC name"
+                    />
                   </div>
                   <div>
-                    <span className="text-gray-500">Bid Date:</span> {bidSummary.bidDate}{" "}
+                    <span className="text-gray-500">Bid Date:</span>{" "}
+                    <EditableField
+                      value={`${bidSummary.bidDate}${bidSummary.bidTime ? ` at ${bidSummary.bidTime}` : ""}`}
+                      onSave={(v) => {
+                        const parts = v.split(" at ");
+                        updateBidField("bidDate", parts[0]);
+                        if (parts[1]) updateBidField("bidTime", parts[1]);
+                      }}
+                      label="bid date"
+                    />{" "}
                     <ConfidenceBadge level={bidSummary.confidence.bidDate} />
                   </div>
                   {bidSummary.gcEstimator && (
                     <div>
-                      <span className="text-gray-500">Estimator:</span> {bidSummary.gcEstimator}
+                      <span className="text-gray-500">Estimator:</span>{" "}
+                      <EditableField
+                        value={bidSummary.gcEstimator}
+                        onSave={(v) => updateBidField("gcEstimator", v)}
+                        label="estimator"
+                      />
                     </div>
                   )}
                   {bidSummary.gcEmail && (
                     <div>
-                      <span className="text-gray-500">Email:</span> {bidSummary.gcEmail}
+                      <span className="text-gray-500">Email:</span>{" "}
+                      <EditableField
+                        value={bidSummary.gcEmail}
+                        onSave={(v) => updateBidField("gcEmail", v)}
+                        label="email"
+                      />
                     </div>
                   )}
                 </div>
@@ -340,19 +549,143 @@ export default function ProjectDetailClient({
                       <tr className="border-b border-gray-100">
                         <th className="text-left py-2 pr-4 font-medium text-gray-500">Type</th>
                         <th className="text-left py-2 pr-4 font-medium text-gray-500">SF</th>
-                        <th className="text-left py-2 font-medium text-gray-500">Product</th>
+                        <th className="text-left py-2 pr-4 font-medium text-gray-500">Product</th>
+                        <th className="text-left py-2 font-medium text-gray-500">Manufacturer</th>
                       </tr>
                     </thead>
                     <tbody>
                       {bidSummary.scope.map((s, i) => (
                         <tr key={i} className="border-b border-gray-50">
-                          <td className="py-2 pr-4">{s.flooringType}</td>
-                          <td className="py-2 pr-4 text-gray-600">{s.approxSF || "\u2014"}</td>
-                          <td className="py-2 text-gray-600">{s.product || "\u2014"}</td>
+                          <td className="py-2 pr-4">
+                            <EditableField
+                              value={s.flooringType}
+                              onSave={(v) => {
+                                const newScope = [...bidSummary.scope];
+                                newScope[i] = { ...newScope[i], flooringType: v };
+                                updateBidField("scope", newScope);
+                              }}
+                              label="flooring type"
+                            />
+                          </td>
+                          <td className="py-2 pr-4 text-gray-600">
+                            <EditableField
+                              value={s.approxSF || "\u2014"}
+                              onSave={(v) => {
+                                const newScope = [...bidSummary.scope];
+                                newScope[i] = { ...newScope[i], approxSF: v === "\u2014" ? null : v };
+                                updateBidField("scope", newScope);
+                              }}
+                              label="square footage"
+                            />
+                          </td>
+                          <td className="py-2 pr-4 text-gray-600">
+                            <EditableField
+                              value={s.product || "\u2014"}
+                              onSave={(v) => {
+                                const newScope = [...bidSummary.scope];
+                                newScope[i] = { ...newScope[i], product: v === "\u2014" ? null : v };
+                                updateBidField("scope", newScope);
+                              }}
+                              label="product"
+                            />
+                          </td>
+                          <td className="py-2 text-gray-600">
+                            <EditableField
+                              value={s.manufacturer || "\u2014"}
+                              onSave={(v) => {
+                                const newScope = [...bidSummary.scope];
+                                newScope[i] = { ...newScope[i], manufacturer: v === "\u2014" ? null : v };
+                                updateBidField("scope", newScope);
+                              }}
+                              label="manufacturer"
+                            />
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+
+              {/* Alternates */}
+              {bidSummary.alternates && bidSummary.alternates.length > 0 && (
+                <div className="bg-purple-50 rounded-xl border border-purple-200 p-6">
+                  <h3 className="text-sm font-semibold text-purple-700 uppercase tracking-wide mb-3">
+                    Alternates
+                  </h3>
+                  <div className="space-y-2">
+                    {bidSummary.alternates.map((alt, i) => (
+                      <div key={i} className="flex items-start gap-2 text-sm text-purple-900">
+                        <span className="font-bold text-purple-600 min-w-[3rem]">
+                          Alt {alt.number || i + 1}:
+                        </span>
+                        <EditableField
+                          value={alt.description}
+                          onSave={(v) => {
+                            const newAlts = [...(bidSummary.alternates || [])];
+                            newAlts[i] = { ...newAlts[i], description: v };
+                            updateBidField("alternates", newAlts);
+                          }}
+                          label="alternate"
+                        />
+                        {alt.estimatedSF && (
+                          <span className="text-purple-500 text-xs">({alt.estimatedSF})</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Addenda */}
+              {bidSummary.addenda && bidSummary.addenda.length > 0 && (
+                <div className="bg-amber-50 rounded-xl border border-amber-200 p-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-amber-700 uppercase tracking-wide">
+                      Addenda
+                      <span className="ml-2 inline-block px-1.5 py-0.5 bg-amber-200 text-amber-800 rounded text-xs font-bold">
+                        {bidSummary.addenda.length}
+                      </span>
+                    </h3>
+                  </div>
+                  {missingAddenda.length > 0 && (
+                    <div className="mb-3 px-3 py-2 bg-yellow-100 border border-yellow-300 rounded-lg text-sm text-yellow-800">
+                      {missingAddenda.map((num) => (
+                        <div key={num}>Addendum {num} referenced in notes but not listed. Has it been received?</div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    {bidSummary.addenda.map((addendum, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm text-amber-900">
+                        <span>{addendum}</span>
+                        <button
+                          onClick={() =>
+                            setAddendaStatus((prev) => ({
+                              ...prev,
+                              [i]: prev[i] === "reviewed" ? "pending" : "reviewed",
+                            }))
+                          }
+                          className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                            addendaStatus[i] === "reviewed"
+                              ? "bg-green-100 text-green-700"
+                              : "bg-amber-200 text-amber-700"
+                          }`}
+                        >
+                          {addendaStatus[i] === "reviewed" ? "Reviewed" : "Pending"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => {
+                      const newAddenda = [...(bidSummary.addenda || []), "New addendum"];
+                      updateBidField("addenda", newAddenda);
+                    }}
+                    className="mt-3 text-xs text-amber-600 hover:text-amber-800"
+                  >
+                    + Add Addendum
+                  </button>
                 </div>
               )}
 
@@ -369,22 +702,94 @@ export default function ProjectDetailClient({
                         className={`flex items-start gap-2 text-sm px-3 py-2 rounded-lg ${
                           match.status === "matched"
                             ? "bg-green-50 text-green-800"
-                            : match.status === "unmatched"
-                            ? "bg-red-50 text-red-800"
-                            : "bg-yellow-50 text-yellow-800"
+                            : "bg-red-50 text-red-800"
                         }`}
                       >
                         <span className="mt-0.5 font-bold">
-                          {match.status === "matched"
-                            ? "\u2713"
-                            : match.status === "unmatched"
-                            ? "\u2717"
-                            : "!"}
+                          {match.status === "matched" ? "\u2713" : "\u2717"}
                         </span>
                         <span>{match.note}</span>
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Spec Items Not in Bid Scope */}
+              {specGaps.length > 0 && (
+                <div className="bg-orange-50 rounded-xl border-2 border-orange-300 p-6">
+                  <h3 className="text-sm font-bold text-orange-800 uppercase tracking-wide mb-1">
+                    Spec Items Not in Bid Scope
+                    <span className="ml-2 inline-block px-1.5 py-0.5 bg-orange-200 text-orange-800 rounded text-xs">
+                      {specGaps.length}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-orange-600 mb-4">
+                    These products appear in the spec but are not referenced in the bid scope. Flag as potential change orders or confirm exclusion.
+                  </p>
+                  <div className="space-y-2">
+                    {specGaps.map((gap, i) => (
+                      <div key={i} className="flex items-center gap-3 text-sm px-3 py-2 bg-white rounded-lg border border-orange-200">
+                        <span className="font-mono text-xs text-orange-700 min-w-[5rem]">{gap.csiSection}</span>
+                        <span className="text-gray-900 flex-1">{gap.productTitle}</span>
+                        <span className="text-xs px-2 py-0.5 rounded bg-orange-100 text-orange-700 whitespace-nowrap">
+                          {gap.impact}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* SF Reconciliation */}
+              {sfReconciliation.length > 0 && sfReconciliation.some((r) => r.scopeSF) && drawings.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-6">
+                  <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+                    Quantity Reconciliation
+                  </h3>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="text-left py-2 pr-4 font-medium text-gray-500">Flooring Type</th>
+                        <th className="text-left py-2 pr-4 font-medium text-gray-500">Bid Scope SF</th>
+                        <th className="text-left py-2 pr-4 font-medium text-gray-500">Drawing Sheets</th>
+                        <th className="text-left py-2 font-medium text-gray-500">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sfReconciliation.map((item, i) => (
+                        <tr
+                          key={i}
+                          className={`border-b border-gray-50 ${
+                            item.plausibility === "review" ? "bg-yellow-50" : ""
+                          }`}
+                        >
+                          <td className="py-2 pr-4">{item.flooringType}</td>
+                          <td className="py-2 pr-4 text-gray-600">{item.scopeSF || "\u2014"}</td>
+                          <td className="py-2 pr-4 text-gray-600">
+                            {item.relevantSheetCount} sheet{item.relevantSheetCount !== 1 ? "s" : ""}
+                            {item.matchingSheetIds.length > 0 && (
+                              <span className="text-xs text-gray-400 ml-1">
+                                ({item.matchingSheetIds.slice(0, 3).join(", ")}
+                                {item.matchingSheetIds.length > 3 ? "..." : ""})
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2">
+                            <span
+                              className={`text-xs font-medium px-2 py-0.5 rounded ${
+                                item.plausibility === "review"
+                                  ? "bg-yellow-200 text-yellow-800"
+                                  : "bg-green-100 text-green-700"
+                              }`}
+                            >
+                              {item.plausibility === "review" ? "REVIEW" : "OK"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
 
@@ -700,7 +1105,7 @@ export default function ProjectDetailClient({
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Export Project Summary</h3>
             <p className="text-sm text-gray-500 mb-6">
-              Print a complete project summary including bid details, relevant drawings, spec products, and gotchas.
+              Print a complete project summary or download as CSV for RFMS import.
             </p>
             <div className="flex gap-3">
               <button
@@ -710,12 +1115,37 @@ export default function ProjectDetailClient({
                 Print / Save as PDF
               </button>
               {bidSummary && (
-                <button
-                  onClick={handleCopy}
-                  className="px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  {copied ? "Copied!" : "Copy Summary to Clipboard"}
-                </button>
+                <>
+                  <button
+                    onClick={handleCopy}
+                    className="px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    {copied ? "Copied!" : "Copy Summary to Clipboard"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      // CSV export for RFMS compatibility
+                      const headers = ["Flooring Type", "Approx SF", "Product", "Manufacturer"];
+                      const rows = bidSummary.scope.map(s => [
+                        s.flooringType,
+                        s.approxSF || "",
+                        s.product || "",
+                        s.manufacturer || "",
+                      ]);
+                      const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+                      const blob = new Blob([csv], { type: "text/csv" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `${project.name.replace(/[^a-zA-Z0-9]/g, "_")}_scope.csv`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    className="px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Export CSV
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -760,7 +1190,8 @@ export default function ProjectDetailClient({
           <div className="text-sm text-gray-600 mt-1">
             {project.gcName && <span>GC: {project.gcName} | </span>}
             {project.bidDate && <span>Bid: {project.bidDate}</span>}
-            {bidSummary && <span> | {bidSummary.recommendation.replaceAll("_", " ")}</span>}
+            {bidSummary && <span> | {formatRecommendation(bidSummary.recommendation)}</span>}
+            {bidSummary?.projectLocation && <span> | {bidSummary.projectLocation}</span>}
           </div>
           <hr className="mt-3" />
         </div>
@@ -773,7 +1204,7 @@ export default function ProjectDetailClient({
               {bidSummary.projectLocation && <div>Location: {bidSummary.projectLocation}</div>}
               {bidSummary.owner && <div>Owner: {bidSummary.owner}</div>}
               <div>GC: {bidSummary.gcName}</div>
-              <div>Bid: {bidSummary.bidDate}</div>
+              <div>Bid: {bidSummary.bidDate}{bidSummary.bidTime ? ` at ${bidSummary.bidTime}` : ""}</div>
             </div>
 
             {bidSummary.scope.length > 0 && (
@@ -785,6 +1216,7 @@ export default function ProjectDetailClient({
                       <th className="text-left py-1">Type</th>
                       <th className="text-left py-1">SF</th>
                       <th className="text-left py-1">Product</th>
+                      <th className="text-left py-1">Manufacturer</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -793,10 +1225,32 @@ export default function ProjectDetailClient({
                         <td className="py-1">{s.flooringType}</td>
                         <td className="py-1">{s.approxSF || "\u2014"}</td>
                         <td className="py-1">{s.product || "\u2014"}</td>
+                        <td className="py-1">{s.manufacturer || "\u2014"}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </>
+            )}
+
+            {bidSummary.alternates && bidSummary.alternates.length > 0 && (
+              <>
+                <h3 className="text-sm font-bold mb-1">Alternates</h3>
+                {bidSummary.alternates.map((alt, i) => (
+                  <div key={i} className="text-sm mb-1">
+                    Alt {alt.number || i + 1}: {alt.description}
+                    {alt.estimatedSF && ` (${alt.estimatedSF})`}
+                  </div>
+                ))}
+              </>
+            )}
+
+            {bidSummary.addenda && bidSummary.addenda.length > 0 && (
+              <>
+                <h3 className="text-sm font-bold mb-1">Addenda</h3>
+                {bidSummary.addenda.map((a, i) => (
+                  <div key={i} className="text-sm mb-1">- {a}</div>
+                ))}
               </>
             )}
 
@@ -819,9 +1273,48 @@ export default function ProjectDetailClient({
             <h2 className="text-base font-bold mb-2">Scope vs. Spec Cross-Reference</h2>
             {scopeMatches.map((m, i) => (
               <div key={i} className="text-sm py-0.5">
-                {m.status === "matched" ? "\u2713" : m.status === "unmatched" ? "\u2717" : "!"} {m.note}
+                {m.status === "matched" ? "\u2713" : "\u2717"} {m.note}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Print: Spec Gaps */}
+        {specGaps.length > 0 && (
+          <div className="mt-4">
+            <h2 className="text-base font-bold mb-2">Spec Items Not in Bid Scope</h2>
+            {specGaps.map((g, i) => (
+              <div key={i} className="text-sm py-0.5">
+                ! {g.csiSection} {g.productTitle} — {g.impact}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Print: SF Reconciliation */}
+        {sfReconciliation.length > 0 && sfReconciliation.some((r) => r.scopeSF) && (
+          <div className="mt-4">
+            <h2 className="text-base font-bold mb-2">Quantity Reconciliation</h2>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-1">Type</th>
+                  <th className="text-left py-1">Bid SF</th>
+                  <th className="text-left py-1">Sheets</th>
+                  <th className="text-left py-1">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sfReconciliation.map((item, i) => (
+                  <tr key={i} className="border-b border-gray-200">
+                    <td className="py-1">{item.flooringType}</td>
+                    <td className="py-1">{item.scopeSF || "\u2014"}</td>
+                    <td className="py-1">{item.relevantSheetCount}</td>
+                    <td className="py-1">{item.plausibility === "review" ? "REVIEW" : "OK"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 

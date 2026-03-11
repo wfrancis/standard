@@ -36,6 +36,14 @@ export function formatBidSummaryText(bid: BidSummary): string {
     lines.push("");
   }
 
+  if (bid.alternates && bid.alternates.length > 0) {
+    lines.push("ALTERNATES:");
+    bid.alternates.forEach((a, i) => {
+      lines.push(`  Alt ${a.number || i + 1}: ${a.description}${a.estimatedSF ? ` (${a.estimatedSF})` : ""}`);
+    });
+    lines.push("");
+  }
+
   if (bid.keyNotes.length > 0) {
     lines.push("KEY NOTES:");
     bid.keyNotes.forEach((n) => lines.push(`  - ${n}`));
@@ -45,6 +53,12 @@ export function formatBidSummaryText(bid: BidSummary): string {
   if (bid.risks.length > 0) {
     lines.push("RISKS:");
     bid.risks.forEach((r) => lines.push(`  ! ${r}`));
+    lines.push("");
+  }
+
+  if (bid.addenda && bid.addenda.length > 0) {
+    lines.push("ADDENDA:");
+    bid.addenda.forEach((a) => lines.push(`  - ${a}`));
     lines.push("");
   }
 

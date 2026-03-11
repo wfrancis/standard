@@ -6,8 +6,6 @@ import { usePathname } from "next/navigation";
 const navItems = [
   { href: "/", label: "Dashboard", icon: "grid" },
   { href: "/bids", label: "Bid Intake", icon: "inbox" },
-  { href: "/drawings", label: "Drawings", icon: "layers" },
-  { href: "/specs", label: "Specs", icon: "file-text" },
 ];
 
 const icons: Record<string, JSX.Element> = {
@@ -62,7 +60,7 @@ export default function Sidebar() {
         })}
       </nav>
       <div className="p-4 border-t border-slate-700">
-        <p className="text-xs text-slate-500">Powered by GPT-5.4</p>
+        <p className="text-xs text-slate-500">Standard Interiors &copy; 2026</p>
       </div>
     </aside>
   );

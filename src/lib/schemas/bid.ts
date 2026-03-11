@@ -22,6 +22,11 @@ export const BidSummarySchema = z.object({
   moistureResponsibility: z.string().optional().nullable(),
   keyNotes: z.array(z.string()).default([]),
   risks: z.array(z.string()).default([]),
+  alternates: z.array(z.object({
+    number: z.string().optional().nullable(),
+    description: z.string(),
+    estimatedSF: z.string().optional().nullable(),
+  })).default([]),
   addenda: z.array(z.string()).default([]),
   missingDocuments: z.array(z.string()).default([]),
   recommendation: z.enum(['BID', 'PASS', 'NEEDS_MORE_INFO']).default('NEEDS_MORE_INFO'),

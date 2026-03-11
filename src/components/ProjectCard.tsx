@@ -13,16 +13,20 @@ interface ProjectCardProps {
   specCount?: number;
 }
 
-function getUrgencyBand(bidDate: string | null): { label: string; color: string } | null {
+function getDaysUntil(bidDate: string | null): { label: string; color: string } | null {
   if (!bidDate) return null;
   const now = new Date();
   const due = new Date(bidDate);
-  const hoursUntil = (due.getTime() - now.getTime()) / (1000 * 60 * 60);
+  const diffMs = due.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
-  if (hoursUntil < 0) return { label: "PAST DUE", color: "bg-gray-500" };
-  if (hoursUntil <= 48) return { label: "DUE SOON", color: "bg-red-500" };
-  if (hoursUntil <= 168) return { label: "THIS WEEK", color: "bg-yellow-500" };
-  return null;
+  if (diffDays < 0) return { label: "PAST DUE", color: "bg-gray-500" };
+  if (diffDays === 0) return { label: "DUE TODAY", color: "bg-red-600" };
+  if (diffDays === 1) return { label: "TOMORROW", color: "bg-red-500" };
+  if (diffDays <= 3) return { label: `${diffDays} DAYS`, color: "bg-red-500" };
+  if (diffDays <= 7) return { label: `${diffDays} DAYS`, color: "bg-yellow-500" };
+  if (diffDays <= 14) return { label: `${diffDays} DAYS`, color: "bg-blue-500" };
+  return { label: `${diffDays} DAYS`, color: "bg-gray-400" };
 }
 
 export default function ProjectCard({
@@ -34,10 +38,10 @@ export default function ProjectCard({
   drawingCount = 0,
   specCount = 0,
 }: ProjectCardProps) {
-  const urgency = getUrgencyBand(bidDate);
+  const countdown = getDaysUntil(bidDate);
 
   const stages = [
-    { label: "Bid", done: true }, // always true since project exists from bid parse
+    { label: "Bid", done: true },
     { label: "Drawings", done: drawingCount > 0 },
     { label: "Specs", done: specCount > 0 },
   ];
@@ -47,15 +51,20 @@ export default function ProjectCard({
   return (
     <Link href={`/projects/${id}`} className="block">
       <div className="bg-white rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all p-5">
-        {urgency && (
-          <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold text-white mb-3 ${urgency.color}`}>
-            {urgency.label}
-          </span>
-        )}
-        <h3 className="font-semibold text-gray-900 text-base">{name}</h3>
-        {gcName && (
-          <p className="text-sm text-gray-500 mt-1">GC: {gcName}</p>
-        )}
+        <div className="flex items-start justify-between">
+          <div className="flex-1 min-w-0">
+            <h3 className="font-semibold text-gray-900 text-base truncate">{name}</h3>
+            {gcName && (
+              <p className="text-sm text-gray-500 mt-1">GC: {gcName}</p>
+            )}
+          </div>
+          {countdown && (
+            <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold text-white ml-2 flex-shrink-0 ${countdown.color}`}>
+              {countdown.label}
+            </span>
+          )}
+        </div>
+
         {bidDate && (
           <p className="text-sm text-gray-600 mt-1">
             Bid: {bidDate}{bidTime ? ` at ${bidTime}` : ""}

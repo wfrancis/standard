@@ -145,7 +145,7 @@ export default function BidIntakePage() {
                 recommendationColors[result.recommendation]
               }`}
             >
-              {result.recommendation.replaceAll("_", " ")}
+              {result.recommendation.replace(/_/g, " ")}
             </span>
           </div>
 
@@ -310,6 +310,28 @@ export default function BidIntakePage() {
                   <li key={i} className="flex items-start gap-2 text-sm text-yellow-800">
                     <span className="mt-0.5">&#8226;</span>
                     {doc}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Alternates */}
+          {result.alternates && result.alternates.length > 0 && (
+            <div className="bg-purple-50 rounded-xl border border-purple-200 p-6">
+              <h3 className="text-sm font-semibold text-purple-700 uppercase tracking-wide mb-4">
+                Alternates
+              </h3>
+              <ul className="space-y-2">
+                {result.alternates.map((alt, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-purple-800">
+                    <span className="font-bold text-purple-600 min-w-[3rem]">
+                      Alt {alt.number || i + 1}:
+                    </span>
+                    <span>{alt.description}</span>
+                    {alt.estimatedSF && (
+                      <span className="text-purple-500 text-xs">({alt.estimatedSF})</span>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -19,10 +19,13 @@ When parsing a bid invite, extract ALL of the following. If information is not f
 8. Specified products and manufacturers
 9. Moisture testing/mitigation responsibility
 10. Bonding requirements
-11. Key notes and risks (phasing, liquidated damages, special conditions)
-12. Addenda received
-13. Missing information that Josh needs to follow up on
-14. Your recommendation: BID, PASS, or NEEDS_MORE_INFO
+11. Key notes and risks (phasing, liquidated damages, special conditions, LEED/sustainability, prevailing wage cost implications, re-mobilization costs)
+12. Alternates (substitute products, add-on scope, deduct alternates) — extract EVERY alternate mentioned
+13. Addenda received
+14. Missing information that Josh needs to follow up on
+15. Your recommendation: BID, PASS, or NEEDS_MORE_INFO
+
+IMPORTANT: Extract ALL alternates. GCs frequently request alternate pricing. Do NOT silently drop alternates — they are critical for bid completeness.
 
 Set confidence levels:
 - "high" if extracted verbatim from source
@@ -49,6 +52,7 @@ Return your response as a FLAT JSON object (no wrapper key) with EXACTLY these f
   "moistureResponsibility": "string or null",
   "keyNotes": ["string"],
   "risks": ["string"],
+  "alternates": [{ "number": "string or null (e.g. '1', '2', 'A')", "description": "string describing the alternate", "estimatedSF": "string or null" }],
   "addenda": ["string"],
   "missingDocuments": ["string"],
   "recommendation": "BID" | "PASS" | "NEEDS_MORE_INFO",
