@@ -9,9 +9,8 @@ interface ProjectCardProps {
   bidDate: string | null;
   bidTime: string | null;
   status: string;
-  itemsReady?: number;
-  totalItems?: number;
-  needsReview?: number;
+  drawingCount?: number;
+  specCount?: number;
 }
 
 function getUrgencyBand(bidDate: string | null): { label: string; color: string } | null {
@@ -32,11 +31,18 @@ export default function ProjectCard({
   gcName,
   bidDate,
   bidTime,
-  itemsReady = 0,
-  totalItems = 3,
-  needsReview = 0,
+  drawingCount = 0,
+  specCount = 0,
 }: ProjectCardProps) {
   const urgency = getUrgencyBand(bidDate);
+
+  const stages = [
+    { label: "Bid", done: true }, // always true since project exists from bid parse
+    { label: "Drawings", done: drawingCount > 0 },
+    { label: "Specs", done: specCount > 0 },
+  ];
+
+  const completedCount = stages.filter((s) => s.done).length;
 
   return (
     <Link href={`/projects/${id}`} className="block">
@@ -55,19 +61,36 @@ export default function ProjectCard({
             Bid: {bidDate}{bidTime ? ` at ${bidTime}` : ""}
           </p>
         )}
-        <div className="mt-4">
-          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-            <span>{itemsReady} of {totalItems} ready</span>
-            {needsReview > 0 && (
-              <span className="text-yellow-600 font-medium">
-                {needsReview} needs review
+
+        {/* Pipeline stages */}
+        <div className="mt-4 flex items-center gap-2">
+          {stages.map((stage, i) => (
+            <div key={i} className="flex items-center gap-1">
+              <span
+                className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                  stage.done
+                    ? "bg-green-100 text-green-700"
+                    : "bg-gray-100 text-gray-400"
+                }`}
+              >
+                {stage.done ? "\u2713" : "\u2014"}
               </span>
-            )}
-          </div>
+              <span className={`text-xs ${stage.done ? "text-green-700 font-medium" : "text-gray-400"}`}>
+                {stage.label}
+              </span>
+              {i < stages.length - 1 && (
+                <span className="text-gray-300 text-xs mx-0.5">&rarr;</span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Progress bar */}
+        <div className="mt-2">
           <div className="w-full bg-gray-200 rounded-full h-1.5">
             <div
               className="bg-blue-600 h-1.5 rounded-full transition-all"
-              style={{ width: `${(itemsReady / totalItems) * 100}%` }}
+              style={{ width: `${(completedCount / stages.length) * 100}%` }}
             />
           </div>
         </div>

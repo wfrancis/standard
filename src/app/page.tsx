@@ -11,6 +11,8 @@ interface Project {
   bid_date: string | null;
   bid_time: string | null;
   status: string;
+  drawing_count?: number;
+  spec_count?: number;
 }
 
 export default function Dashboard() {
@@ -109,6 +111,8 @@ export default function Dashboard() {
               bidDate={project.bid_date}
               bidTime={project.bid_time}
               status={project.status}
+              drawingCount={project.drawing_count ?? 0}
+              specCount={project.spec_count ?? 0}
             />
           ))}
         </div>

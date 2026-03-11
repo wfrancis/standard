@@ -61,6 +61,7 @@ Commercial flooring estimator workflow automation. Uses GPT-5.4 to process bid i
 - **Simplicity First**: Make every change as simple as possible. Impact minimal code.
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
 - **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+- **NEVER ignore warnings or errors** — fix them immediately. No "harmless" warnings.
 
 ## Tech Stack
 - Next.js 14 (App Router) + TypeScript + Tailwind CSS

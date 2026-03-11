@@ -1,3 +1,42 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Print styles */
+@media print {
+  /* Hide sidebar, nav, tab bar, upload zones */
+  nav,
+  aside,
+  .no-print,
+  [class*="sidebar"],
+  button,
+  textarea,
+  input {
+    display: none !important;
+  }
+
+  /* Show print-only layout */
+  .print-only {
+    display: block !important;
+  }
+
+  /* Hide screen-only content */
+  .print-only ~ *:not(.print-only) {
+    display: none !important;
+  }
+
+  /* Page breaks */
+  .page-break-before {
+    page-break-before: always;
+  }
+
+  body {
+    font-size: 11pt;
+    color: #000;
+  }
+
+  /* Remove backgrounds and shadows for clean print */
+  * {
+    box-shadow: none !important;
+  }
+}

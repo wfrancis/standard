@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import getOpenAI, { callWithRetry } from "@/lib/openai";
 import { DRAWING_CLASSIFY_SYSTEM_PROMPT } from "@/lib/prompts/drawing-classify";
 import { DrawingClassificationSchema } from "@/lib/schemas/drawing";
+import { saveDrawings } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
+    const projectId = formData.get("projectId") as string | null;
 
     if (!file) {
       return NextResponse.json(
@@ -106,6 +108,11 @@ export async function POST(request: NextRequest) {
         (c) => c.relevanceToFlooring === "none"
       ).length,
     };
+
+    // Persist to DB if projectId provided
+    if (projectId) {
+      saveDrawings(projectId, classifications);
+    }
 
     return NextResponse.json({
       totalPages,

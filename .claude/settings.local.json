@@ -8,7 +8,12 @@
       "Bash(git remote:*)",
       "Bash(gh auth:*)",
       "Bash(ssh -T git@github.com 2>&1)",
-      "Bash(ssh-keygen -t ed25519 -C \"wbfrancis@gmail.com\" -f ~/.ssh/id_ed25519 -N \"\")"
+      "Bash(ssh-keygen -t ed25519 -C \"wbfrancis@gmail.com\" -f ~/.ssh/id_ed25519 -N \"\")",
+      "Bash(find ~/.claude -type f -name \"*mcp*\" 2>/dev/null | head -20)",
+      "Bash(find ~ -path \"*/Chrome/*\" -name \"*.json\" 2>/dev/null | grep -E \"\\(manifest|mcp|claude\\)\" | head -20)",
+      "Bash(find ~ -name \".mcp.json\" -type f 2>/dev/null | xargs cat 2>/dev/null)",
+      "Bash(find \"/Users/william/Library/Application Support/Google/Chrome/Profile 3/Extensions/fcoeoabgfenejglbffodgkkbkcdhcgfn\" -name \"manifest.json\" 2>/dev/null | head -3 | xargs cat 2>/dev/null)",
+      "Bash(npx @playwright/mcp@latest --help 2>&1 | head -30)"
     ]
   }
 }

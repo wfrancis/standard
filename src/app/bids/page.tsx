@@ -4,12 +4,15 @@ import { useState } from "react";
 import FileUpload from "@/components/FileUpload";
 import ConfidenceBadge from "@/components/ConfidenceBadge";
 import type { BidSummary } from "@/lib/schemas/bid";
+import { formatBidSummaryText as formatBidText } from "@/lib/format-bid-summary";
 
 export default function BidIntakePage() {
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BidSummary | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   async function handleSubmit() {
     if (!content.trim()) return;
@@ -31,6 +34,7 @@ export default function BidIntakePage() {
 
       const data = await res.json();
       setResult(data.summary);
+      setProjectId(data.projectId || null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -330,21 +334,36 @@ export default function BidIntakePage() {
 
           {/* Actions */}
           <div className="flex gap-3">
+            {projectId && (
+              <a
+                href={`/projects/${projectId}`}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                View Project &rarr;
+              </a>
+            )}
+            <button
+              onClick={async () => {
+                if (!result) return;
+                const text = formatBidText(result);
+                await navigator.clipboard.writeText(text);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              {copied ? "Copied!" : "Copy Summary"}
+            </button>
             <button
               onClick={() => {
                 setResult(null);
+                setProjectId(null);
                 setContent("");
               }}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
             >
               Process Another
             </button>
-            <a
-              href="/"
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              View Dashboard
-            </a>
           </div>
         </div>
       )}

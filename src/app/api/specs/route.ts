@@ -5,6 +5,7 @@ import {
   SPEC_EXTRACT_USER_PROMPT,
 } from "@/lib/prompts/spec-extract";
 import { SpecExtractionSchema } from "@/lib/schemas/spec";
+import { saveSpec } from "@/lib/db";
 
 async function extractFromText(text: string) {
   const truncatedText = text.slice(0, 48000);
@@ -38,11 +39,13 @@ export async function POST(request: NextRequest) {
   try {
     const contentType = request.headers.get("content-type") || "";
     let fullText: string;
+    let projectId: string | null = null;
 
     if (contentType.includes("application/json")) {
       // Text input mode
       const body = await request.json();
       const { content } = body;
+      projectId = body.projectId || null;
       if (!content || typeof content !== "string" || !content.trim()) {
         return NextResponse.json(
           { error: "Missing or empty 'content' field" },
@@ -54,6 +57,7 @@ export async function POST(request: NextRequest) {
       // File upload mode
       const formData = await request.formData();
       const file = formData.get("file") as File | null;
+      projectId = formData.get("projectId") as string | null;
 
       if (!file) {
         return NextResponse.json(
@@ -78,6 +82,12 @@ export async function POST(request: NextRequest) {
     }
 
     const extraction = await extractFromText(fullText);
+
+    // Persist to DB if projectId provided
+    if (projectId) {
+      saveSpec(projectId, extraction as unknown as Record<string, unknown>);
+    }
+
     return NextResponse.json({ extraction });
   } catch (err) {
     console.error("Spec extraction error:", err);

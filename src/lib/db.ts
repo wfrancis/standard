@@ -60,4 +60,82 @@ function getDb(): Database.Database {
   return _db;
 }
 
+// --- Helper functions ---
+
+export function saveDrawings(projectId: string, classifications: Array<{
+  pageNumber: number;
+  sheetId: string;
+  sheetTitle?: string | null;
+  discipline: string;
+  relevanceToFlooring: string;
+  flooringNotes?: string | null;
+  detailTypes?: string[] | null;
+  phase?: string | null;
+}>) {
+  const db = getDb();
+  const stmt = db.prepare(
+    `INSERT OR REPLACE INTO drawings (id, project_id, page_number, sheet_id, sheet_title, discipline, relevance, flooring_notes, detail_types, phase)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const insertMany = db.transaction((items: typeof classifications) => {
+    for (const c of items) {
+      stmt.run(
+        `${projectId}-p${c.pageNumber}`,
+        projectId,
+        c.pageNumber,
+        c.sheetId,
+        c.sheetTitle || null,
+        c.discipline,
+        c.relevanceToFlooring,
+        c.flooringNotes || null,
+        c.detailTypes ? JSON.stringify(c.detailTypes) : null,
+        c.phase || null
+      );
+    }
+  });
+  insertMany(classifications);
+}
+
+export function getDrawingsByProject(projectId: string) {
+  return getDb()
+    .prepare('SELECT * FROM drawings WHERE project_id = ? ORDER BY page_number')
+    .all(projectId);
+}
+
+export function saveSpec(projectId: string, extraction: Record<string, unknown>) {
+  const db = getDb();
+  const id = `${projectId}-spec-${Date.now()}`;
+  db.prepare(
+    `INSERT INTO specs (id, project_id, extraction_json) VALUES (?, ?, ?)`
+  ).run(id, projectId, JSON.stringify(extraction));
+  return id;
+}
+
+export function getSpecsByProject(projectId: string) {
+  return getDb()
+    .prepare('SELECT * FROM specs WHERE project_id = ? ORDER BY created_at DESC')
+    .all(projectId);
+}
+
+export function getProjectWithCounts(projectId: string) {
+  const db = getDb();
+  const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
+  if (!project) return null;
+  const drawingCount = (db.prepare('SELECT COUNT(*) as count FROM drawings WHERE project_id = ?').get(projectId) as { count: number }).count;
+  const specCount = (db.prepare('SELECT COUNT(*) as count FROM specs WHERE project_id = ?').get(projectId) as { count: number }).count;
+  return { ...(project as Record<string, unknown>), drawingCount, specCount };
+}
+
+export function getProjectsWithCounts(status: string) {
+  const db = getDb();
+  return db.prepare(`
+    SELECT p.*,
+      (SELECT COUNT(*) FROM drawings WHERE project_id = p.id) as drawing_count,
+      (SELECT COUNT(*) FROM specs WHERE project_id = p.id) as spec_count
+    FROM projects p
+    WHERE p.status = ?
+    ORDER BY CASE WHEN p.bid_date IS NULL THEN 1 ELSE 0 END, p.bid_date ASC
+  `).all(status);
+}
+
 export default getDb;
