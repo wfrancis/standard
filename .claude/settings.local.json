@@ -6,7 +6,9 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(git remote:*)",
-      "Bash(gh auth:*)"
+      "Bash(gh auth:*)",
+      "Bash(ssh -T git@github.com 2>&1)",
+      "Bash(ssh-keygen -t ed25519 -C \"wbfrancis@gmail.com\" -f ~/.ssh/id_ed25519 -N \"\")"
     ]
   }
 }
