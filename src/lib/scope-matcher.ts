@@ -23,15 +23,34 @@ export interface ScopeMatch {
   scopeItem: string;
   matchedProduct: string | null;
   matchedCsi: string | null;
-  status: "matched" | "unmatched" | "warning";
+  status: "matched" | "unmatched";
   note: string;
+}
+
+export interface SpecGapItem {
+  productTitle: string;
+  csiSection: string;
+  impact: string;
+}
+
+export interface CrossReferenceResult {
+  scopeMatches: ScopeMatch[];
+  specGaps: SpecGapItem[];
+}
+
+function classifyGapImpact(csiSection: string): string {
+  if (csiSection.startsWith("09 66")) return "High-cost scope gap — verify exclusion";
+  if (csiSection.startsWith("09 96")) return "High-cost scope gap — verify exclusion";
+  if (csiSection.startsWith("09 65 13")) return "Common add-on — confirm if in base bid";
+  return "Potential change order";
 }
 
 export function crossReferenceScope(
   bidSummary: BidSummary,
   specExtractions: SpecExtraction[]
-): ScopeMatch[] {
-  const results: ScopeMatch[] = [];
+): CrossReferenceResult {
+  const scopeMatches: ScopeMatch[] = [];
+  const specGaps: SpecGapItem[] = [];
   const allProducts = specExtractions.flatMap((s) => s.products);
   const matchedProductIndices = new Set<number>();
 
@@ -52,7 +71,7 @@ export function crossReferenceScope(
       if (productIdx >= 0) {
         const product = allProducts[productIdx];
         matchedProductIndices.add(productIdx);
-        results.push({
+        scopeMatches.push({
           scopeItem: flooringType,
           matchedProduct: product.sectionTitle,
           matchedCsi: product.csiSection,
@@ -65,7 +84,7 @@ export function crossReferenceScope(
     }
 
     if (!matched) {
-      results.push({
+      scopeMatches.push({
         scopeItem: flooringType,
         matchedProduct: null,
         matchedCsi: null,
@@ -79,14 +98,78 @@ export function crossReferenceScope(
   for (let i = 0; i < allProducts.length; i++) {
     if (matchedProductIndices.has(i)) continue;
     const product = allProducts[i];
-    results.push({
-      scopeItem: product.sectionTitle,
-      matchedProduct: product.sectionTitle,
-      matchedCsi: product.csiSection,
-      status: "warning",
-      note: `${product.csiSection} ${product.sectionTitle} in specs but not in bid scope`,
+    specGaps.push({
+      productTitle: product.sectionTitle,
+      csiSection: product.csiSection,
+      impact: classifyGapImpact(product.csiSection),
     });
   }
 
-  return results;
+  return { scopeMatches, specGaps };
+}
+
+// SF Reconciliation: compare bid scope quantities to drawing sheet counts
+export interface SFReconciliationItem {
+  flooringType: string;
+  scopeSF: string | null;
+  relevantSheetCount: number;
+  matchingSheetIds: string[];
+  plausibility: "ok" | "review";
+}
+
+export function buildSFReconciliation(
+  bidSummary: BidSummary,
+  drawings: Array<{ sheetId: string; relevanceToFlooring: string; flooringNotes: string | null }>
+): SFReconciliationItem[] {
+  const relevantDrawings = drawings.filter(
+    (d) => d.relevanceToFlooring === "high" || d.relevanceToFlooring === "medium"
+  );
+
+  return bidSummary.scope.map((scope) => {
+    // Build keywords from the flooring type
+    const keywords: RegExp[] = [];
+    for (const [pattern] of FLOORING_TO_CSI) {
+      if (pattern.test(scope.flooringType)) {
+        // Extract core words from the flooring type for note matching
+        const words = scope.flooringType.toLowerCase().split(/\s+/);
+        for (const w of words) {
+          if (w.length > 2) keywords.push(new RegExp(w, "i"));
+        }
+        break;
+      }
+    }
+
+    // If no CSI match, use raw flooring type words
+    if (keywords.length === 0) {
+      const words = scope.flooringType.toLowerCase().split(/\s+/);
+      for (const w of words) {
+        if (w.length > 2) keywords.push(new RegExp(w, "i"));
+      }
+    }
+
+    // Find matching sheets
+    const matching = relevantDrawings.filter((d) => {
+      if (!d.flooringNotes) return false;
+      return keywords.some((kw) => kw.test(d.flooringNotes!));
+    });
+
+    // Plausibility heuristic
+    let plausibility: "ok" | "review" = "ok";
+    if (scope.approxSF && matching.length === 0) {
+      plausibility = "review";
+    } else if (scope.approxSF) {
+      const sfNum = parseInt(scope.approxSF.replace(/[^0-9]/g, ""), 10);
+      if (sfNum > 10000 && matching.length <= 1) {
+        plausibility = "review";
+      }
+    }
+
+    return {
+      flooringType: scope.flooringType,
+      scopeSF: scope.approxSF || null,
+      relevantSheetCount: matching.length,
+      matchingSheetIds: matching.map((m) => m.sheetId),
+      plausibility,
+    };
+  });
 }

@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import getOpenAI, { callWithRetry } from "@/lib/openai";
-import {
-  BID_INTAKE_SYSTEM_PROMPT,
-  BID_INTAKE_USER_PROMPT,
-} from "@/lib/prompts/bid-intake";
-import { BidSummarySchema } from "@/lib/schemas/bid";
+import { parseBidInvite } from "@/lib/parse-bid";
 import getDb from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
 
@@ -20,33 +15,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = await callWithRetry(() =>
-      getOpenAI().chat.completions.create({
-        model: "gpt-4o",
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: BID_INTAKE_SYSTEM_PROMPT },
-          { role: "user", content: BID_INTAKE_USER_PROMPT(content) },
-        ],
-        max_tokens: 2000,
-      })
-    );
-
-    const raw = response.choices[0]?.message?.content;
-    if (!raw) {
-      return NextResponse.json(
-        { error: "No response from AI model" },
-        { status: 502 }
-      );
-    }
-
-    let parsed = JSON.parse(raw);
-    // GPT sometimes wraps in a key like { "bidSummary": {...} } — unwrap if needed
-    const keys = Object.keys(parsed);
-    if (keys.length === 1 && typeof parsed[keys[0]] === 'object' && parsed[keys[0]]?.projectName) {
-      parsed = parsed[keys[0]];
-    }
-    const summary = BidSummarySchema.parse(parsed);
+    const summary = await parseBidInvite(content);
 
     // Create project in database
     const projectId = uuidv4();

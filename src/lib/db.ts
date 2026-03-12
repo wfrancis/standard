@@ -55,6 +55,38 @@ function getDb(): Database.Database {
       source_pages TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS agent_jobs (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      project_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      result_json TEXT,
+      attempt INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 3,
+      locked_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_id TEXT NOT NULL REFERENCES agent_jobs(id),
+      level TEXT NOT NULL DEFAULT 'info',
+      message TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS email_tracking (
+      uid TEXT PRIMARY KEY,
+      message_id TEXT,
+      subject TEXT,
+      from_address TEXT,
+      processed_at TEXT DEFAULT (datetime('now')),
+      job_id TEXT
+    );
   `);
 
   return _db;
@@ -136,6 +168,42 @@ export function getProjectsWithCounts(status: string) {
     WHERE p.status = ?
     ORDER BY CASE WHEN p.bid_date IS NULL THEN 1 ELSE 0 END, p.bid_date ASC
   `).all(status);
+}
+
+export function updateProject(
+  projectId: string,
+  fields: {
+    name?: string;
+    gc_name?: string | null;
+    gc_estimator?: string | null;
+    gc_email?: string | null;
+    bid_date?: string | null;
+    bid_time?: string | null;
+    status?: string;
+    bid_summary_json?: string;
+  }
+) {
+  const db = getDb();
+  const setClauses: string[] = [];
+  const values: unknown[] = [];
+
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) {
+      setClauses.push(`${key} = ?`);
+      values.push(value);
+    }
+  }
+
+  if (setClauses.length === 0) return null;
+
+  setClauses.push("updated_at = datetime('now')");
+  values.push(projectId);
+
+  db.prepare(
+    `UPDATE projects SET ${setClauses.join(", ")} WHERE id = ?`
+  ).run(...values);
+
+  return db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
 }
 
 export default getDb;
