@@ -6,6 +6,55 @@ import { fetchUnreadBidEmails, saveAttachments } from './email-client';
 import type { AgentJob, BidIntakePayload } from './types';
 
 /**
+ * Filter out non-bid emails. Returns true if the email looks like a bid invite.
+ */
+function isBidRelatedEmail(subject: string, from: string, body: string): boolean {
+  const lower = `${subject} ${body}`.toLowerCase();
+
+  // Skip known automated/notification senders
+  const skipSenders = [
+    'noreply', 'no-reply', 'mailer-daemon', 'postmaster',
+    'accounts.google', 'security@', 'notifications@',
+    'newsletter', 'marketing', 'updates@', 'support@',
+    'billing@', 'donotreply',
+  ];
+  const fromLower = from.toLowerCase();
+  if (skipSenders.some((s) => fromLower.includes(s))) return false;
+
+  // Skip known notification subjects
+  const skipSubjects = [
+    'security alert', 'sign-in', 'password', 'verification',
+    'welcome to', 'account created', 'confirm your',
+    'subscription', 'unsubscribe', 'newsletter',
+    'out of office', 'auto-reply', 'automatic reply',
+    'delivery status', 'mail delivery', 'returned mail',
+  ];
+  const subjectLower = subject.toLowerCase();
+  if (skipSubjects.some((s) => subjectLower.includes(s))) return false;
+
+  // Positive signals — bid-related keywords
+  const bidKeywords = [
+    'bid', 'itb', 'rfp', 'rfi', 'invitation', 'proposal',
+    'flooring', 'carpet', 'tile', 'lvt', 'vinyl',
+    'scope', 'plans', 'specifications', 'drawings',
+    'subcontract', 'general contractor', 'estimat',
+    'prevailing wage', 'addendum', 'pre-bid',
+    'square feet', 'sq ft', 'sf ',
+  ];
+  const hasBidSignal = bidKeywords.some((kw) => lower.includes(kw));
+
+  // If no bid signals found and body is very short, skip it
+  if (!hasBidSignal && body.length < 200) return false;
+
+  // If body has bid signals, accept it
+  if (hasBidSignal) return true;
+
+  // For longer emails without clear signals, still accept (could be a forwarded bid)
+  // but only if it has attachments (checked at call site) or substantial content
+  return body.length > 500;
+}
+
+/**
  * Poll email inbox for new bid invites. Creates bid_intake jobs for each new email.
  */
 export async function pollEmailInbox(): Promise<number> {
@@ -20,6 +69,13 @@ export async function pollEmailInbox(): Promise<number> {
 
     for (const email of emails) {
       if (isEmailProcessed(email.uid)) continue;
+
+      // Pre-filter: skip non-bid emails
+      if (!isBidRelatedEmail(email.subject, email.from, email.body)) {
+        console.log(`[agent] Skipping non-bid email: "${email.subject}" from ${email.from}`);
+        trackEmail(email.uid, email.messageId, email.subject, email.from, 'skipped');
+        continue;
+      }
 
       // Save attachments to temp location before project is created
       const tempId = `pending-${email.uid}`;

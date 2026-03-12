@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateProject } from "@/lib/db";
+import { updateProject, deleteProject } from "@/lib/db";
 
 export async function PATCH(
   request: NextRequest,
@@ -31,6 +31,25 @@ export async function PATCH(
     return NextResponse.json({ project: updated });
   } catch (err) {
     console.error("PATCH /api/projects/[id] error:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Internal error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const deleted = deleteProject(params.id);
+    if (!deleted) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /api/projects/[id] error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Internal error" },
       { status: 500 }

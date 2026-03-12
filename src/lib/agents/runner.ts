@@ -1,4 +1,4 @@
-import { dequeueJob, completeJob, failJob, logAgent } from './queue';
+import { dequeueJob, completeJob, failJob } from './queue';
 import { pollEmailInbox, processBidIntake } from './bid-intake-agent';
 import { processDrawingSort } from './drawing-sorter-agent';
 import { processSpecRead } from './spec-reader-agent';

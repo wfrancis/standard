@@ -206,4 +206,18 @@ export function updateProject(
   return db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
 }
 
+export function deleteProject(projectId: string): boolean {
+  const db = getDb();
+  // Delete related records first
+  db.prepare('DELETE FROM drawings WHERE project_id = ?').run(projectId);
+  db.prepare('DELETE FROM specs WHERE project_id = ?').run(projectId);
+  // Delete agent logs for jobs associated with this project
+  db.prepare(
+    `DELETE FROM agent_log WHERE job_id IN (SELECT id FROM agent_jobs WHERE project_id = ?)`
+  ).run(projectId);
+  db.prepare('DELETE FROM agent_jobs WHERE project_id = ?').run(projectId);
+  const result = db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
+  return result.changes > 0;
+}
+
 export default getDb;

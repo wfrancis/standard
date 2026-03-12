@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getRecentJobs, getJobStats } from '@/lib/agents/queue';
 import type { AgentJob } from '@/lib/agents/types';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const recent = getRecentJobs(20);

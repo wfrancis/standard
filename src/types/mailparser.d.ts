@@ -1,5 +1,5 @@
 declare module 'mailparser' {
-  export function simpleParser(source: any): Promise<{
+  export function simpleParser(source: Buffer | string | NodeJS.ReadableStream): Promise<{
     text?: string;
     html?: string;
     attachments: Array<{

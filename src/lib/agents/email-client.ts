@@ -56,6 +56,7 @@ export async function fetchUnreadBidEmails(): Promise<EmailMessage[]> {
 
         // Parse body and attachments from raw source
         const { simpleParser } = await import('mailparser');
+        if (!msg.source) continue;
         const parsed = await simpleParser(msg.source);
 
         const body = parsed.text || parsed.html || '';
