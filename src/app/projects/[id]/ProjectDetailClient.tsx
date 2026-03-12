@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import ConfidenceBadge from "@/components/ConfidenceBadge";
 import FileUpload from "@/components/FileUpload";
 import type { BidSummary } from "@/lib/schemas/bid";
@@ -39,7 +39,7 @@ const relevanceColors: Record<string, string> = {
   none: "bg-gray-50 text-gray-400",
 };
 
-const tabs = ["Summary", "Drawings", "Specs", "Export"] as const;
+const tabs = ["Summary", "Drawings", "Specs", "Export", "Agents"] as const;
 type Tab = (typeof tabs)[number];
 
 function daysUntilBid(bidDate: string | null): string | null {
@@ -159,6 +159,25 @@ export default function ProjectDetailClient({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [addendaStatus, setAddendaStatus] = useState<Record<number, "reviewed" | "pending">>({});
+  const [agentJobs, setAgentJobs] = useState<Array<{ id: string; type: string; status: string; created_at: string; completed_at: string | null }>>([]);
+  const [agentRerunning, setAgentRerunning] = useState<string | null>(null);
+
+  // Fetch agent jobs for this project
+  useEffect(() => {
+    if (activeTab !== "Agents") return;
+    async function fetchJobs() {
+      try {
+        const res = await fetch(`/api/agents/status`);
+        if (res.ok) {
+          const data = await res.json();
+          setAgentJobs((data.recent || []).filter((j: { project_id: string | null }) => j.project_id === project.id));
+        }
+      } catch { /* non-critical */ }
+    }
+    fetchJobs();
+    const interval = setInterval(fetchJobs, 5000);
+    return () => clearInterval(interval);
+  }, [activeTab, project.id]);
 
   // Drawing stats
   const relevantCount = drawings.filter(
@@ -1179,6 +1198,75 @@ export default function ProjectDetailClient({
                 Spec Products & Gotchas
               </li>
             </ul>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "Agents" && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Agent Activity</h3>
+              <div className="flex gap-2">
+                <button
+                  disabled={agentRerunning === "drawing_sort"}
+                  onClick={async () => {
+                    setAgentRerunning("drawing_sort");
+                    try {
+                      await fetch("/api/agents/jobs", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ type: "drawing_sort", payload: { project_id: project.id }, projectId: project.id }),
+                      });
+                    } finally { setAgentRerunning(null); }
+                  }}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {agentRerunning === "drawing_sort" ? "Enqueuing..." : "Re-run Drawings"}
+                </button>
+                <button
+                  disabled={agentRerunning === "spec_read"}
+                  onClick={async () => {
+                    setAgentRerunning("spec_read");
+                    try {
+                      await fetch("/api/agents/jobs", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ type: "spec_read", payload: { project_id: project.id }, projectId: project.id }),
+                      });
+                    } finally { setAgentRerunning(null); }
+                  }}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {agentRerunning === "spec_read" ? "Enqueuing..." : "Re-run Specs"}
+                </button>
+              </div>
+            </div>
+
+            {agentJobs.length === 0 ? (
+              <p className="text-sm text-gray-500">No agent jobs for this project yet.</p>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {agentJobs.map((job) => (
+                  <div key={job.id} className="py-3 flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">
+                        {job.type === "bid_intake" ? "Bid Intake" : job.type === "drawing_sort" ? "Drawing Sort" : "Spec Read"}
+                      </span>
+                      <span className="text-xs text-gray-400 ml-2">{new Date(job.created_at).toLocaleString()}</span>
+                    </div>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                      job.status === "completed" ? "bg-green-100 text-green-800" :
+                      job.status === "running" ? "bg-blue-100 text-blue-800" :
+                      job.status === "failed" ? "bg-red-100 text-red-800" :
+                      "bg-gray-100 text-gray-600"
+                    }`}>
+                      {job.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

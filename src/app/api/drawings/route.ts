@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import getOpenAI, { callWithRetry } from "@/lib/openai";
-import { DRAWING_CLASSIFY_SYSTEM_PROMPT } from "@/lib/prompts/drawing-classify";
-import { DrawingClassificationSchema } from "@/lib/schemas/drawing";
+import { classifyDrawingPage } from "@/lib/classify-drawing-page";
 import { saveDrawings } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
@@ -41,56 +39,8 @@ export async function POST(request: NextRequest) {
     const classifications = [];
 
     for (let i = 0; i < pageTexts.length; i++) {
-      const pageText = pageTexts[i];
-
-      // Skip very short pages (likely blank or just headers)
-      if (pageText.length < 20) {
-        classifications.push({
-          pageNumber: i + 1,
-          sheetId: `P${i + 1}`,
-          sheetTitle: null,
-          discipline: "other" as const,
-          relevanceToFlooring: "none" as const,
-          flooringNotes: null,
-        });
-        continue;
-      }
-
-      try {
-        const response = await callWithRetry(() =>
-          getOpenAI().chat.completions.create({
-            model: "gpt-4o",
-            response_format: { type: "json_object" },
-            messages: [
-              { role: "system", content: DRAWING_CLASSIFY_SYSTEM_PROMPT },
-              {
-                role: "user",
-                content: `Classify this construction drawing sheet (page ${i + 1}). Based on the text content extracted from this page, identify the sheet number, title, discipline, and relevance to flooring scope.\n\nExtracted text:\n---\n${pageText.slice(0, 3000)}\n---\n\nReturn JSON with fields: pageNumber (number), sheetId (string), sheetTitle (string or null), discipline (one of: architectural_floor_plan, enlarged_plan, finish_schedule, detail_sheet, reflected_ceiling_plan, demolition_plan, elevation, section, cover_sheet, mechanical, electrical, plumbing, structural, civil, interior_design, other), relevanceToFlooring (one of: high, medium, low, none), flooringNotes (string or null), detailTypes (array of strings or null), phase (string or null).`,
-              },
-            ],
-            max_tokens: 500,
-          })
-        );
-
-        const raw = response.choices[0]?.message?.content;
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          parsed.pageNumber = i + 1; // Ensure correct page number
-          const validated = DrawingClassificationSchema.parse(parsed);
-          classifications.push(validated);
-        }
-      } catch (pageErr) {
-        // If individual page fails, add a fallback entry
-        console.error(`Failed to classify page ${i + 1}:`, pageErr);
-        classifications.push({
-          pageNumber: i + 1,
-          sheetId: `P${i + 1}`,
-          sheetTitle: null,
-          discipline: "other" as const,
-          relevanceToFlooring: "none" as const,
-          flooringNotes: "Classification failed for this page",
-        });
-      }
+      const result = await classifyDrawingPage(pageTexts[i], i + 1);
+      classifications.push(result);
     }
 
     // Build summary

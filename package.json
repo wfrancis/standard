@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",
+    "imapflow": "^1.0.171",
+    "mailparser": "^3.7.1",
     "next": "14.2.35",
     "openai": "^6.27.0",
     "p-limit": "^6.2.0",

@@ -2,7 +2,8 @@
 const nextConfig = {
   output: 'standalone',
   experimental: {
-    serverComponentsExternalPackages: ['better-sqlite3', 'pdf-parse'],
+    instrumentationHook: true,
+    serverComponentsExternalPackages: ['better-sqlite3', 'pdf-parse', 'imapflow', 'mailparser'],
   },
 };
 

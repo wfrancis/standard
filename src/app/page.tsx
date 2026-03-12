@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import ProjectCard from "@/components/ProjectCard";
+import AgentStatusBar from "@/components/AgentStatusBar";
 
 interface Project {
   id: string;
@@ -46,7 +47,9 @@ export default function Dashboard() {
     : projects;
 
   return (
-    <div className="p-8">
+    <div>
+      <AgentStatusBar />
+      <div className="p-8">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Projects</h1>
@@ -150,6 +153,7 @@ export default function Dashboard() {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }
